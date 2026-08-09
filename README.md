@@ -1,6 +1,8 @@
-# Golden Cross / Death Cross Backtest
+# systematic_trading
 
-Systematic trading backtest for the **Golden Cross** and **Death Cross** strategy on **Nifty 500** stocks.
+Systematic trading backtests for Indian equities — starting with **Golden Cross / Death Cross** on **Nifty 500**.
+
+Repository: https://github.com/Nandanc/systematic_trading
 
 ## Strategy (Manual Rules)
 
@@ -27,7 +29,7 @@ python main.py                    # last 10 years (default)
 python main.py --years 10         # explicit 10-year window
 python main.py --years 5          # last 5 years
 python main.py --start 2016-01-01 # custom start (with MA warmup auto-fetched)
-python main.py --limit 20   # quick test on 20 stocks
+python main.py --limit 20         # quick test on 20 stocks
 ```
 
 ## Outputs
