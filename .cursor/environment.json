@@ -1,0 +1,4 @@
+{
+  "name": "Golden Cross Backtest",
+  "install": ".cursor/scripts/install.sh"
+}
