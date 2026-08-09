@@ -6,7 +6,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-import numpy as np
 import pandas as pd
 
 from .config import (
@@ -16,7 +15,11 @@ from .config import (
     STT_PCT,
 )
 from .metrics import compute_metrics, MetricsResult
-from .strategy import extract_trades, generate_signals
+from .strategy import (
+    extract_trades_from_signals,
+    generate_risk_managed_signals,
+    generate_signals,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +55,18 @@ def backtest_single_stock(
     symbol: str,
     df: pd.DataFrame,
     initial_capital: float,
+    use_risk_management: bool = True,
 ) -> Optional[StockBacktestResult]:
-    """Run backtest on one stock with position sizing = full allocated capital."""
-    signals = generate_signals(df)
+    """Run backtest with optional stop-loss / trailing-stop / take-profit exits."""
+    if use_risk_management:
+        signals = generate_risk_managed_signals(df)
+        trades = extract_trades_from_signals(signals)
+    else:
+        signals = generate_signals(df)
+        from .strategy import extract_trades as extract_legacy_trades
+
+        trades = extract_legacy_trades(df)
+
     if signals["SMA_long"].isna().all():
         return None
 
@@ -62,29 +74,50 @@ def backtest_single_stock(
     shares = 0.0
     equity_values = []
 
-    prev_position = 0
-    for date, row in signals.iterrows():
-        price = row["Close"]
-        position = int(row["position"])
+    if use_risk_management:
+        in_position = False
+        for date, row in signals.iterrows():
+            if row.get("entry_signal", False) and not in_position:
+                buy_price = float(row["Close"]) * (1 + _transaction_cost_pct(True))
+                shares = cash / buy_price
+                cash = 0.0
+                in_position = True
+            elif row.get("exit_signal", False) and in_position:
+                sell_raw = (
+                    float(row["trade_exit_price"])
+                    if pd.notna(row.get("trade_exit_price"))
+                    else float(row["Close"])
+                )
+                sell_price = sell_raw * (1 - _transaction_cost_pct(False))
+                cash = shares * sell_price
+                shares = 0.0
+                in_position = False
 
-        if position == 1 and prev_position == 0 and row["golden_cross"]:
-            buy_price = price * (1 + _transaction_cost_pct(True))
-            shares = cash / buy_price
-            cash = 0.0
-        elif position == 0 and prev_position == 1 and row["death_cross"]:
-            sell_price = price * (1 - _transaction_cost_pct(False))
-            cash = shares * sell_price
-            shares = 0.0
+            price = float(row["Close"])
+            equity_values.append(cash + shares * price)
+    else:
+        prev_position = 0
+        for date, row in signals.iterrows():
+            price = float(row["Close"])
+            position = int(row["position"])
 
-        equity = cash + shares * price
-        equity_values.append(equity)
-        prev_position = position
+            if position == 1 and prev_position == 0 and row["golden_cross"]:
+                buy_price = price * (1 + _transaction_cost_pct(True))
+                shares = cash / buy_price
+                cash = 0.0
+            elif position == 0 and prev_position == 1 and row["death_cross"]:
+                sell_price = price * (1 - _transaction_cost_pct(False))
+                cash = shares * sell_price
+                shares = 0.0
+
+            equity_values.append(cash + shares * price)
+            prev_position = position
 
     equity_curve = pd.Series(equity_values, index=signals.index, name=symbol)
-    trades = extract_trades(signals)
+
     if not trades.empty:
+        trades = trades.copy()
         trades["symbol"] = symbol
-        # Apply transaction costs to trade returns
         round_trip_cost = _transaction_cost_pct(True) + _transaction_cost_pct(False)
         trades["return_pct_net"] = trades["return_pct"] - round_trip_cost
 
@@ -104,6 +137,7 @@ def backtest_single_stock(
 def backtest_portfolio(
     price_data: Dict[str, pd.DataFrame],
     initial_capital: float = INITIAL_CAPITAL,
+    use_risk_management: bool = True,
 ) -> PortfolioBacktestResult:
     """
     Backtest each Nifty 500 stock with equal capital allocation.
@@ -117,14 +151,15 @@ def backtest_portfolio(
     stock_results: List[StockBacktestResult] = []
 
     for symbol, df in price_data.items():
-        result = backtest_single_stock(symbol, df, capital_per_stock)
+        result = backtest_single_stock(
+            symbol, df, capital_per_stock, use_risk_management=use_risk_management
+        )
         if result is not None:
             stock_results.append(result)
 
     if not stock_results:
         raise ValueError("No successful backtests")
 
-    # Align all equity curves on common dates
     equity_df = pd.DataFrame({r.symbol: r.equity_curve for r in stock_results})
     equity_df = equity_df.sort_index().ffill().bfill()
 
@@ -214,6 +249,21 @@ def apply_backtest_window(
         backtest_start=backtest_start,
         backtest_end=backtest_end or str(eq.index[-1].date()),
     )
+
+
+def summarize_exit_reasons(trades: pd.DataFrame) -> pd.DataFrame:
+    """Count how often each exit type fired."""
+    if trades.empty or "exit_reason" not in trades.columns:
+        return pd.DataFrame()
+    summary = trades.groupby("exit_reason").agg(
+        count=("return_pct", "count"),
+        avg_return_pct=("return_pct", lambda x: x.mean() * 100),
+        avg_loss_pct=(
+            "return_pct",
+            lambda x: x[x < 0].mean() * 100 if (x < 0).any() else 0,
+        ),
+    ).reset_index()
+    return summary.round(2)
 
 
 def summarize_stock_metrics(stock_results: List[StockBacktestResult]) -> pd.DataFrame:

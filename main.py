@@ -42,6 +42,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--limit", type=int, default=None, help="Limit number of stocks (for quick tests)")
     parser.add_argument("--symbols-file", type=Path, default=DATA_DIR / "nifty500_symbols.csv")
     parser.add_argument("--output-dir", type=Path, default=OUTPUT_DIR)
+    parser.add_argument(
+        "--no-risk-management",
+        action="store_true",
+        help="Use classic death-cross-only exits (no stop loss)",
+    )
+    parser.add_argument("--stop-loss", type=float, default=None, help="Stop loss %% (e.g. 0.08 = 8%%)")
+    parser.add_argument("--trailing-stop", type=float, default=None, help="Trailing stop %% from peak")
+    parser.add_argument("--take-profit", type=float, default=None, help="Take profit %% (e.g. 0.40 = 40%%)")
     return parser.parse_args()
 
 
@@ -56,6 +64,17 @@ def main() -> None:
         ).strftime("%Y-%m-%d")
     else:
         download_start, backtest_start, backtest_end = get_backtest_period(args.years)
+
+    # Apply CLI overrides to risk config
+    if args.stop_loss is not None or args.trailing_stop is not None or args.take_profit is not None:
+        import src.config as cfg
+
+        if args.stop_loss is not None:
+            cfg.STOP_LOSS_PCT = args.stop_loss
+        if args.trailing_stop is not None:
+            cfg.TRAILING_STOP_PCT = args.trailing_stop
+        if args.take_profit is not None:
+            cfg.TAKE_PROFIT_PCT = args.take_profit
 
     logger.info("Loading Nifty 500 symbols...")
     symbols = load_nifty500_symbols(args.symbols_file)
@@ -81,7 +100,11 @@ def main() -> None:
         backtest_end,
         f"{args.capital:,.0f}",
     )
-    result = backtest_portfolio(price_data, initial_capital=args.capital)
+    result = backtest_portfolio(
+        price_data,
+        initial_capital=args.capital,
+        use_risk_management=not args.no_risk_management,
+    )
     result = apply_backtest_window(result, backtest_start, backtest_end)
 
     logger.info("Generating report and charts...")

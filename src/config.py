@@ -44,5 +44,12 @@ SLIPPAGE_PCT = 0.0005  # 0.05% slippage estimate
 # Risk-free rate for Sharpe (India 10Y govt bond approx)
 RISK_FREE_RATE_ANNUAL = 0.07
 
+# Risk management — entry/exit levels (limits loss per trade)
+STOP_LOSS_PCT = 0.08          # Exit if price falls 8% below entry
+TRAILING_STOP_PCT = 0.10      # Exit if price falls 10% from highest since entry
+USE_TRAILING_STOP = True
+TAKE_PROFIT_PCT = 0.40        # Optional target: sell at +40% (None to disable)
+REQUIRE_PRICE_ABOVE_MA = True # Entry only if close is above both SMAs on golden cross
+
 # yfinance suffix for NSE stocks
 NSE_SUFFIX = ".NS"

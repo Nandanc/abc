@@ -12,8 +12,17 @@ import pandas as pd
 import seaborn as sns
 from tabulate import tabulate
 
-from .backtest import PortfolioBacktestResult, summarize_stock_metrics
-from .config import INITIAL_CAPITAL, OUTPUT_DIR, SHORT_MA, LONG_MA
+from .backtest import PortfolioBacktestResult, summarize_exit_reasons, summarize_stock_metrics
+from .config import (
+    INITIAL_CAPITAL,
+    OUTPUT_DIR,
+    SHORT_MA,
+    LONG_MA,
+    STOP_LOSS_PCT,
+    TRAILING_STOP_PCT,
+    TAKE_PROFIT_PCT,
+    USE_TRAILING_STOP,
+)
 from .metrics import MetricsResult
 
 logger = logging.getLogger(__name__)
@@ -138,6 +147,15 @@ def generate_report(result: PortfolioBacktestResult, output_dir: Path = OUTPUT_D
         "",
         f"- **Golden Cross (BUY):** {SHORT_MA}-day SMA crosses **above** {LONG_MA}-day SMA",
         f"- **Death Cross (SELL):** {SHORT_MA}-day SMA crosses **below** {LONG_MA}-day SMA",
+        "",
+        "### Risk rules (limit losses)",
+        "",
+        f"- **Stop loss:** sell if price falls **{STOP_LOSS_PCT * 100:.0f}%** below entry",
+        f"- **Trailing stop:** sell if price falls **{TRAILING_STOP_PCT * 100:.0f}%** from highest since entry"
+        + (" (enabled)" if USE_TRAILING_STOP else " (disabled)"),
+        f"- **Take profit:** sell at **+{TAKE_PROFIT_PCT * 100:.0f}%** above entry (if hit before other exits)",
+        "- **Death cross** still exits if none of the above trigger first",
+        "",
         f"- **Universe:** Nifty 500 ({len(result.stock_results)} stocks with sufficient data)",
         f"- **Backtest Period:** {result.backtest_start or 'N/A'} to {result.backtest_end or 'N/A'}",
         f"- **Initial Capital:** ₹{INITIAL_CAPITAL:,.0f}",
@@ -159,6 +177,21 @@ def generate_report(result: PortfolioBacktestResult, output_dir: Path = OUTPUT_D
         f"- **Median Win Rate:** {stock_summary['Win Rate %'].median():.2f}%",
         f"- **Median Sharpe:** {stock_summary['Sharpe'].median():.2f}",
         "",
+    ]
+
+    exit_summary = summarize_exit_reasons(result.aggregate_trades)
+    if not exit_summary.empty:
+        lines.extend(
+            [
+                "## Exit reasons (how trades closed)",
+                "",
+                tabulate(exit_summary.values, headers=exit_summary.columns, tablefmt="pipe", floatfmt=".2f"),
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
         "## Top 10 Performers",
         "",
         tabulate(stock_summary.head(10).values, headers=stock_summary.columns, tablefmt="pipe", floatfmt=".2f"),
@@ -181,7 +214,8 @@ def generate_report(result: PortfolioBacktestResult, output_dir: Path = OUTPUT_D
         f"- `{stock_csv.name}` — Per-stock metrics CSV",
         f"- `{dd_chart.name}` — Drawdown distribution",
         f"- `{ret_chart.name}` — Return distribution",
-    ]
+        ],
+    )
 
     report_path.write_text("\n".join(lines))
     logger.info("Report saved to %s", report_path)
