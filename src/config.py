@@ -1,5 +1,6 @@
 """Configuration for Golden Cross / Death Cross backtest on Nifty 500."""
 
+from datetime import datetime, timedelta
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -13,8 +14,27 @@ LONG_MA = 200
 
 # Backtest parameters
 INITIAL_CAPITAL = 10_000_000  # INR (10 lakh * 10 = 1 crore for portfolio demo)
-START_DATE = "2015-01-01"
+BACKTEST_YEARS = 10  # default: last 10 years
+MA_WARMUP_DAYS = 300  # extra calendar days before window for 200-day SMA warmup
 END_DATE = None  # None = today
+
+
+def get_backtest_period(years: int = BACKTEST_YEARS) -> tuple[str, str, str]:
+    """
+    Return (download_start, backtest_start, end_date) as YYYY-MM-DD strings.
+    download_start includes warmup history for moving averages.
+    """
+    end = datetime.now()
+    backtest_start = end - timedelta(days=int(years * 365.25))
+    download_start = backtest_start - timedelta(days=MA_WARMUP_DAYS)
+    return (
+        download_start.strftime("%Y-%m-%d"),
+        backtest_start.strftime("%Y-%m-%d"),
+        end.strftime("%Y-%m-%d"),
+    )
+
+
+DOWNLOAD_START_DATE, START_DATE, _ = get_backtest_period()
 
 # Transaction costs (Indian equity typical retail)
 BROKERAGE_PCT = 0.0003  # 0.03% per side

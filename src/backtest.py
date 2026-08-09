@@ -37,6 +37,8 @@ class PortfolioBacktestResult:
     metrics: MetricsResult
     stock_results: List[StockBacktestResult] = field(default_factory=list)
     aggregate_trades: pd.DataFrame = field(default_factory=pd.DataFrame)
+    backtest_start: Optional[str] = None
+    backtest_end: Optional[str] = None
 
 
 def _transaction_cost_pct(is_buy: bool) -> float:
@@ -143,6 +145,74 @@ def backtest_portfolio(
         metrics=portfolio_metrics,
         stock_results=stock_results,
         aggregate_trades=all_trades,
+    )
+
+
+def apply_backtest_window(
+    result: PortfolioBacktestResult,
+    backtest_start: str,
+    backtest_end: Optional[str] = None,
+) -> PortfolioBacktestResult:
+    """Restrict metrics, equity curve, and trades to the requested date window."""
+    start_ts = pd.Timestamp(backtest_start)
+    end_ts = pd.Timestamp(backtest_end) if backtest_end else None
+
+    eq = result.equity_curve[result.equity_curve.index >= start_ts]
+    if end_ts is not None:
+        eq = eq[eq.index <= end_ts]
+    if len(eq) < 2:
+        return result
+
+    trades = result.aggregate_trades
+    if not trades.empty and "entry_date" in trades.columns:
+        entry_dates = pd.to_datetime(trades["entry_date"])
+        mask = entry_dates >= start_ts
+        if end_ts is not None:
+            mask &= entry_dates <= end_ts
+        trades = trades[mask]
+
+    daily_returns = eq.pct_change().fillna(0)
+    portfolio_metrics = compute_metrics(eq, daily_returns, trades)
+
+    new_stock_results: List[StockBacktestResult] = []
+    for r in result.stock_results:
+        stock_eq = r.equity_curve[r.equity_curve.index >= start_ts]
+        if end_ts is not None:
+            stock_eq = stock_eq[stock_eq.index <= end_ts]
+        if len(stock_eq) < 2:
+            continue
+
+        stock_trades = r.trades
+        if not stock_trades.empty and "entry_date" in stock_trades.columns:
+            entry_dates = pd.to_datetime(stock_trades["entry_date"])
+            mask = entry_dates >= start_ts
+            if end_ts is not None:
+                mask &= entry_dates <= end_ts
+            stock_trades = stock_trades[mask]
+
+        stock_metrics = compute_metrics(
+            stock_eq,
+            stock_eq.pct_change().fillna(0),
+            stock_trades,
+        )
+        new_stock_results.append(
+            StockBacktestResult(
+                symbol=r.symbol,
+                signals_df=r.signals_df,
+                equity_curve=stock_eq,
+                trades=stock_trades,
+                metrics=stock_metrics,
+                initial_capital=float(stock_eq.iloc[0]),
+            )
+        )
+
+    return PortfolioBacktestResult(
+        equity_curve=eq,
+        metrics=portfolio_metrics,
+        stock_results=new_stock_results,
+        aggregate_trades=trades,
+        backtest_start=backtest_start,
+        backtest_end=backtest_end or str(eq.index[-1].date()),
     )
 
 

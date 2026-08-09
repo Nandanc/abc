@@ -23,7 +23,10 @@ python main.py
 ### Options
 
 ```bash
-python main.py --start 2015-01-01 --capital 10000000
+python main.py                    # last 10 years (default)
+python main.py --years 10         # explicit 10-year window
+python main.py --years 5          # last 5 years
+python main.py --start 2016-01-01 # custom start (with MA warmup auto-fetched)
 python main.py --limit 20   # quick test on 20 stocks
 ```
 

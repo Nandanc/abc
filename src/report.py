@@ -111,10 +111,14 @@ def generate_report(result: PortfolioBacktestResult, output_dir: Path = OUTPUT_D
     dd_chart = output_dir / f"drawdown_distribution_{timestamp}.png"
     ret_chart = output_dir / f"return_distribution_{timestamp}.png"
 
+    period_label = ""
+    if result.backtest_start and result.backtest_end:
+        period_label = f" ({result.backtest_start} to {result.backtest_end})"
+
     plot_equity_curve(
         result.equity_curve,
         equity_chart,
-        title=f"Nifty 500 Golden Cross ({SHORT_MA}/{LONG_MA}) Portfolio Equity Curve",
+        title=f"Nifty 500 Golden Cross ({SHORT_MA}/{LONG_MA}) Portfolio Equity Curve{period_label}",
     )
     plot_drawdown_distribution(stock_summary, dd_chart)
     plot_return_distribution(stock_summary, ret_chart)
@@ -135,6 +139,7 @@ def generate_report(result: PortfolioBacktestResult, output_dir: Path = OUTPUT_D
         f"- **Golden Cross (BUY):** {SHORT_MA}-day SMA crosses **above** {LONG_MA}-day SMA",
         f"- **Death Cross (SELL):** {SHORT_MA}-day SMA crosses **below** {LONG_MA}-day SMA",
         f"- **Universe:** Nifty 500 ({len(result.stock_results)} stocks with sufficient data)",
+        f"- **Backtest Period:** {result.backtest_start or 'N/A'} to {result.backtest_end or 'N/A'}",
         f"- **Initial Capital:** ₹{INITIAL_CAPITAL:,.0f}",
         f"- **Allocation:** Equal weight per stock (₹{INITIAL_CAPITAL / len(result.stock_results):,.0f} each)",
         "",
